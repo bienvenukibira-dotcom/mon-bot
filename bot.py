@@ -1,14 +1,11 @@
 import telebot
-import os
 
-TOKEN = os.getenv("8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw")
-
-if not TOKEN:
-    print("TOKEN manquant ❌")
-    exit()
+# 🔴 MET TON TOKEN ICI DIRECTEMENT
+TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
 
 bot = telebot.TeleBot(TOKEN)
 
+# 🔥 évite erreur 409
 bot.delete_webhook()
 
 @bot.message_handler(commands=['start'])
