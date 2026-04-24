@@ -5,6 +5,7 @@ TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
 
 bot = telebot.TeleBot(TOKEN)
 
+# éviter erreur 409
 bot.delete_webhook()
 
 @bot.message_handler(commands=['start'])
@@ -15,7 +16,6 @@ def start(message):
 def reply(message):
     paire = message.text.upper()
 
-    # liste des paires autorisées
     paires = ["BTCUSDT", "EURUSD", "USDJPY", "GBPUSD"]
 
     if paire in paires:
