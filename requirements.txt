@@ -1,5 +1,2 @@
-telebot
-requests
-pandas
-ta
-pillow
+pyTelegramBotAPI
+Pillow
