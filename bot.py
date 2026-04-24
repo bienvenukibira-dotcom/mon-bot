@@ -9,7 +9,6 @@ if not TOKEN:
 
 bot = telebot.TeleBot(TOKEN)
 
-# corrige erreur 409
 bot.delete_webhook()
 
 @bot.message_handler(commands=['start'])
