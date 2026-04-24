@@ -8,13 +8,30 @@ bot = telebot.TeleBot(TOKEN)
 
 bot.delete_webhook()
 
-# 📊 données M1
+# 🔧 récupération données robuste
 def get_data(symbol):
     try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=100"
-        data = requests.get(url, timeout=5).json()
-        closes = [float(c[4]) for c in data]
-        return pd.Series(closes)
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=120"
+        response = requests.get(url, timeout=5)
+
+        if response.status_code != 200:
+            return None
+
+        data = response.json()
+
+        if isinstance(data, dict) and "code" in data:
+            return None
+
+        df = pd.DataFrame(data, columns=[
+            "time","open","high","low","close","volume",
+            "ct","qv","nt","tb","tq","ignore"
+        ])
+
+        df["close"] = df["close"].astype(float)
+        df["open"] = df["open"].astype(float)
+
+        return df
+
     except:
         return None
 
@@ -40,8 +57,21 @@ def macd(series):
     signal = macd_line.ewm(span=9).mean()
     return macd_line, signal
 
+# 📉 engulfing simple
+def engulfing(df):
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    if prev["close"] < prev["open"] and last["close"] > last["open"] and last["close"] > prev["open"]:
+        return "CALL"
+
+    if prev["close"] > prev["open"] and last["close"] < last["open"] and last["close"] < prev["open"]:
+        return "PUT"
+
+    return None
+
 # 🎨 image
-def create_image(signal, confidence, symbol):
+def create_image(signal, score, symbol):
     img = Image.new('RGB', (500, 300), color='black')
     draw = ImageDraw.Draw(img)
 
@@ -49,64 +79,68 @@ def create_image(signal, confidence, symbol):
 
     draw.text((180, 60), symbol, fill="white")
     draw.text((180, 120), signal, fill=color)
-    draw.text((180, 180), f"{confidence}%", fill="white")
+    draw.text((180, 180), f"{score}%", fill="white")
 
     img.save("signal.png")
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "Mode SNIPER M1 actif 🚀\nEnvoie une paire (BTCUSDT...)")
+    bot.send_message(message.chat.id, "ULTRA SNIPER prêt 🔥\nEnvoie BTCUSDT ou autre paire")
 
 @bot.message_handler(func=lambda message: True)
 def analyse(message):
     symbol = message.text.upper()
 
-    data = get_data(symbol)
+    df = get_data(symbol)
 
-    if data is None:
-        bot.send_message(message.chat.id, "Erreur données ❌")
+    if df is None:
+        bot.send_message(message.chat.id, "Erreur paire ❌")
         return
 
-    # indicateurs
-    ema50 = ema(data, 50).iloc[-1]
-    ema200 = ema(data, 200).iloc[-1]
-    rsi_val = rsi(data).iloc[-1]
-    macd_line, macd_signal = macd(data)
+    close = df["close"]
 
+    ema50 = ema(close, 50).iloc[-1]
+    ema200 = ema(close, 200).iloc[-1]
+    rsi_val = rsi(close).iloc[-1]
+
+    macd_line, macd_signal = macd(close)
     macd_last = macd_line.iloc[-1]
     signal_last = macd_signal.iloc[-1]
 
+    engulf = engulfing(df)
+
     score = 0
 
-    # 🎯 scoring
     if ema50 > ema200:
-        score += 25
         trend = "UP"
+        score += 20
     else:
-        score += 25
         trend = "DOWN"
+        score += 20
 
-    if trend == "UP" and rsi_val < 40:
-        score += 25
-    elif trend == "DOWN" and rsi_val > 60:
-        score += 25
+    if trend == "UP" and 30 < rsi_val < 50:
+        score += 20
+    elif trend == "DOWN" and 50 < rsi_val < 70:
+        score += 20
 
     if trend == "UP" and macd_last > signal_last:
-        score += 25
+        score += 20
     elif trend == "DOWN" and macd_last < signal_last:
-        score += 25
+        score += 20
 
-    # 📊 décision
-    if score >= 70:
+    if engulf == "CALL" and trend == "UP":
+        score += 30
+    elif engulf == "PUT" and trend == "DOWN":
+        score += 30
+
+    if score >= 75:
         signal = "CALL" if trend == "UP" else "PUT"
+        create_image(signal, score, symbol)
+
+        with open("signal.png", "rb") as photo:
+            bot.send_photo(message.chat.id, photo)
     else:
         bot.send_message(message.chat.id, f"{symbol} → PAS DE SIGNAL ❌ ({score}%)")
-        return
 
-    create_image(signal, score, symbol)
-
-    with open("signal.png", "rb") as photo:
-        bot.send_photo(message.chat.id, photo)
-
-print("Bot SNIPER lancé...")
+print("ULTRA SNIPER BOT lancé...")
 bot.infinity_polling()
