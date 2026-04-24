@@ -1,5 +1,6 @@
 import telebot
 import requests
+import pandas as pd
 from PIL import Image, ImageDraw
 
 TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
@@ -7,41 +8,37 @@ bot = telebot.TeleBot(TOKEN)
 
 bot.delete_webhook()
 
-# 📊 récupérer bougies 1 minute
-def get_candles(symbol):
+# 📊 données M1
+def get_data(symbol):
     try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=20"
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=100"
         data = requests.get(url, timeout=5).json()
         closes = [float(c[4]) for c in data]
-        return closes
+        return pd.Series(closes)
     except:
         return None
 
-# 🧠 analyse M1
-def analyse(symbol):
-    closes = get_candles(symbol)
-    if not closes:
-        return None, 0
+# 📈 EMA
+def ema(series, period):
+    return series.ewm(span=period).mean()
 
-    up = 0
-    down = 0
+# 📉 RSI
+def rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
 
-    for i in range(len(closes)-1):
-        if closes[i+1] > closes[i]:
-            up += 1
-        else:
-            down += 1
-
-    total = up + down
-
-    if up > down:
-        signal = "CALL"
-        confidence = int((up / total) * 100)
-    else:
-        signal = "PUT"
-        confidence = int((down / total) * 100)
-
-    return signal, confidence
+# 📊 MACD
+def macd(series):
+    ema12 = series.ewm(span=12).mean()
+    ema26 = series.ewm(span=26).mean()
+    macd_line = ema12 - ema26
+    signal = macd_line.ewm(span=9).mean()
+    return macd_line, signal
 
 # 🎨 image
 def create_image(signal, confidence, symbol):
@@ -58,22 +55,58 @@ def create_image(signal, confidence, symbol):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "Envoie une paire (BTCUSDT, EURUSD...) ⏱ M1")
+    bot.send_message(message.chat.id, "Mode SNIPER M1 actif 🚀\nEnvoie une paire (BTCUSDT...)")
 
 @bot.message_handler(func=lambda message: True)
-def handle(message):
+def analyse(message):
     symbol = message.text.upper()
 
-    signal, confidence = analyse(symbol)
+    data = get_data(symbol)
 
-    if signal is None:
-        bot.send_message(message.chat.id, "Erreur paire ❌")
+    if data is None:
+        bot.send_message(message.chat.id, "Erreur données ❌")
         return
 
-    create_image(signal, confidence, symbol)
+    # indicateurs
+    ema50 = ema(data, 50).iloc[-1]
+    ema200 = ema(data, 200).iloc[-1]
+    rsi_val = rsi(data).iloc[-1]
+    macd_line, macd_signal = macd(data)
+
+    macd_last = macd_line.iloc[-1]
+    signal_last = macd_signal.iloc[-1]
+
+    score = 0
+
+    # 🎯 scoring
+    if ema50 > ema200:
+        score += 25
+        trend = "UP"
+    else:
+        score += 25
+        trend = "DOWN"
+
+    if trend == "UP" and rsi_val < 40:
+        score += 25
+    elif trend == "DOWN" and rsi_val > 60:
+        score += 25
+
+    if trend == "UP" and macd_last > signal_last:
+        score += 25
+    elif trend == "DOWN" and macd_last < signal_last:
+        score += 25
+
+    # 📊 décision
+    if score >= 70:
+        signal = "CALL" if trend == "UP" else "PUT"
+    else:
+        bot.send_message(message.chat.id, f"{symbol} → PAS DE SIGNAL ❌ ({score}%)")
+        return
+
+    create_image(signal, score, symbol)
 
     with open("signal.png", "rb") as photo:
         bot.send_photo(message.chat.id, photo)
 
-print("Bot M1 lancé...")
+print("Bot SNIPER lancé...")
 bot.infinity_polling()
