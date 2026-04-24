@@ -3,11 +3,17 @@ import os
 import random
 from PIL import Image, ImageDraw
 
+# 🔑 récupérer le token depuis Render
 TOKEN = os.getenv("8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw")
+
+if not TOKEN:
+    print("TOKEN manquant ❌")
+    exit()
+
 bot = telebot.TeleBot(TOKEN)
 
-# 🔥 reset conflit Telegram
-bot.remove_webhook()
+# 🔥 corrige erreur 409
+bot.delete_webhook()
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -28,4 +34,5 @@ def reply(message):
     with open("signal.png", "rb") as photo:
         bot.send_photo(message.chat.id, photo)
 
+print("Bot lancé...")
 bot.infinity_polling()
