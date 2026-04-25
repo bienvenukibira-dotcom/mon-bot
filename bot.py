@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 
 TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
-API_KEY = "TA_CLE_API_ICI"
+API_KEY = "afca3d19871f415da626c918d9f565b0"
 
 bot = telebot.TeleBot(TOKEN)
 bot.delete_webhook()
