@@ -4,34 +4,19 @@ import pandas as pd
 from PIL import Image, ImageDraw
 
 TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
-API_KEY = "DSAKU861DQJ6IM2D"
 
 bot = telebot.TeleBot(TOKEN)
 bot.remove_webhook()
 
-# 📊 récupération données forex (Alpha Vantage)
+# 📊 données Binance
 def get_data(symbol):
     try:
-        if len(symbol) != 6:
-            return None
-
-        base = symbol[:3]
-        quote = symbol[3:]
-
-        url = f"https://www.alphavantage.co/query?function=FX_INTRADAY&from_symbol={base}&to_symbol={quote}&interval=1min&apikey={API_KEY}"
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=100"
         data = requests.get(url).json()
 
-        key = "Time Series FX (1min)"
-
-        if key not in data:
-            print("API ERROR:", data)
-            return None
-
-        closes = [float(v["4. close"]) for v in data[key].values()]
-        return pd.Series(closes[::-1])
-
-    except Exception as e:
-        print("ERREUR:", e)
+        closes = [float(candle[4]) for candle in data]
+        return pd.Series(closes)
+    except:
         return None
 
 # 📈 EMA
@@ -71,7 +56,7 @@ def create_image(signal, score, symbol):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "BOT PRO ACTIF 🚀\nEnvoie EURUSD")
+    bot.send_message(message.chat.id, "BOT PRO CRYPTO 🚀\nEnvoie BTCUSDT")
 
 @bot.message_handler(func=lambda message: True)
 def analyse(message):
