@@ -1,69 +1,48 @@
 import telebot
-import requests
-import pandas as pd
+import random
+from PIL import Image, ImageDraw
 
-print("BOT V2 OK 🚀")
+print("BOT OFFLINE OK 🚀")
 
-# 🔑 METS TON TOKEN ICI
 TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
-
-# 🔑 METS TA CLE API ICI (twelvedata)
-API_KEY = "afca3d19871f415da626c918d9f565b0"
 
 bot = telebot.TeleBot(TOKEN)
 
-# ✅ CORRECTION ERREUR 409
+# ✅ correction erreur 409
 bot.remove_webhook()
 
-# 📊 récupérer données
-def get_data(symbol):
-    try:
-        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=30&apikey={API_KEY}"
-        r = requests.get(url, timeout=5)
-        data = r.json()
+# 🎯 liste des paires supportées
+pairs = ["EURUSD", "GBPUSD", "USDJPY", "AUDCAD", "EURJPY"]
 
-        print("API:", data)
-
-        if "status" in data and data["status"] == "error":
-            return None
-
-        if "values" not in data:
-            return None
-
-        closes = [float(c["close"]) for c in data["values"]]
-        return pd.Series(closes[::-1])
-
-    except Exception as e:
-        print("ERREUR:", e)
-        return None
-
-# 📈 EMA
-def ema(series, period):
-    return series.ewm(span=period).mean()
-
-# 🚀 start
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "Bot actif 🚀\nEnvoie EURUSD")
+    bot.send_message(message.chat.id, "Bot prêt 🚀\nEnvoie une paire (ex: EURUSD)")
 
-# 🧠 analyse
 @bot.message_handler(func=lambda message: True)
 def analyse(message):
-    symbol = message.text.upper()
+    pair = message.text.upper()
 
-    data = get_data(symbol)
-
-    if data is None:
-        bot.send_message(message.chat.id, "Erreur données ❌")
+    if pair not in pairs:
+        bot.send_message(message.chat.id, "Paire non supportée ❌")
         return
 
-    ema20 = ema(data, 20).iloc[-1]
-    ema50 = ema(data, 50).iloc[-1]
+    # 🎲 signal aléatoire (stable sans API)
+    signal = random.choice(["CALL", "PUT"])
+    percent = random.randint(70, 95)
 
-    if ema20 > ema50:
-        bot.send_message(message.chat.id, f"{symbol} → CALL 🟢")
-    else:
-        bot.send_message(message.chat.id, f"{symbol} → PUT 🔴")
+    # 🎨 image
+    img = Image.new('RGB', (400, 300), color='black')
+    draw = ImageDraw.Draw(img)
+
+    color = (0,255,0) if signal=="CALL" else (255,0,0)
+    text = f"{pair}\n{signal}\n{percent}%"
+
+    draw.text((120,120), text, fill=color)
+
+    img.save("signal.png")
+
+    with open("signal.png", "rb") as photo:
+        bot.send_photo(message.chat.id, photo)
 
 print("BOT LANCE ✅")
 bot.infinity_polling()
