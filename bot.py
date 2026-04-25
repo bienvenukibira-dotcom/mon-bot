@@ -1,96 +1,127 @@
 import telebot
-import yfinance as yf
+import requests
 import pandas as pd
-import pandas_ta as ta
-from PIL import Image, ImageDraw, ImageFont
-import os
+from PIL import Image, ImageDraw
 
 TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
+
 bot = telebot.TeleBot(TOKEN)
+bot.remove_webhook()
 
-# Liste des paires (Format Yahoo Finance pour la précision)
-pairs = {
-    "EURUSD": "EURUSD=X",
-    "GBPUSD": "GBPUSD=X",
-    "USDJPY": "JPY=X",
-    "BTC": "BTC-USD",
-    "ETH": "ETH-USD"
-}
+# 🔥 DONNÉES BINANCE CORRIGÉES
+def get_data(symbol):
+    try:
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=100"
+        response = requests.get(url, timeout=10)
 
-def get_signal(symbol):
-    # 1. Récupération des données (bougies de 1 minute)
-    data = yf.download(symbol, interval="1m", period="1d", progress=False)
-    if data.empty:
-        return None, None
+        if response.status_code != 200:
+            print("HTTP ERROR:", response.status_code)
+            return None
 
-    # 2. Calcul des indicateurs
-    # RSI
-    data['RSI'] = ta.rsi(data['Close'], length=14)
-    # MACD (12, 26, 9)
-    macd = ta.macd(data['Close'], fast=12, slow=26, signal=9)
-    data = pd.concat([data, macd], axis=1)
+        data = response.json()
 
-    # 3. Analyse des dernières valeurs
-    last_row = data.iloc[-1]
-    prev_row = data.iloc[-2]
-    
-    rsi_val = last_row['RSI']
-    macd_line = last_row['MACD_12_26_9']
-    signal_line = last_row['MACDs_12_26_9']
-    
-    # 4. Logique de Signal (Confluence)
-    signal = "ATTENTE"
-    probabilite = random.randint(70, 85) # Simulation de confiance
+        if isinstance(data, dict):
+            print("BINANCE ERROR:", data)
+            return None
 
-    # Condition ACHAT (CALL) : RSI bas + Croisement MACD vers le haut
-    if rsi_val < 40 and macd_line > signal_line and prev_row['MACD_12_26_9'] <= prev_row['MACDs_12_26_9']:
-        signal = "CALL"
-        probabilite = random.randint(86, 98)
-    
-    # Condition VENTE (PUT) : RSI haut + Croisement MACD vers le bas
-    elif rsi_val > 60 and macd_line < signal_line and prev_row['MACD_12_26_9'] >= prev_row['MACDs_12_26_9']:
-        signal = "PUT"
-        probabilite = random.randint(86, 98)
+        closes = [float(candle[4]) for candle in data]
 
-    return signal, probabilite
+        if len(closes) < 50:
+            return None
+
+        return pd.Series(closes)
+
+    except Exception as e:
+        print("ERREUR:", e)
+        return None
+
+# 📈 EMA
+def ema(series, period):
+    return series.ewm(span=period).mean()
+
+# 📉 RSI
+def rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+# 📊 MACD
+def macd(series):
+    ema12 = series.ewm(span=12).mean()
+    ema26 = series.ewm(span=26).mean()
+    macd_line = ema12 - ema26
+    signal = macd_line.ewm(span=9).mean()
+    return macd_line, signal
+
+# 🎨 IMAGE
+def create_image(signal, score, symbol):
+    img = Image.new('RGB', (500, 300), color='black')
+    draw = ImageDraw.Draw(img)
+
+    color = (0,255,0) if signal == "CALL" else (255,0,0)
+
+    draw.text((170, 50), symbol, fill="white")
+    draw.text((180, 120), signal, fill=color)
+    draw.text((180, 190), f"{score}%", fill="white")
+
+    img.save("signal.png")
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    msg = "🚀 **BOT TRADING ACTIF**\n\nClique sur une paire pour analyser (1 min) :"
-    markup = telebot.types.ReplyKeyboardMarkup(row_width=2)
-    buttons = [telebot.types.KeyboardButton(p) for p in pairs.keys()]
-    markup.add(*buttons)
-    bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "BOT PRO RÉEL 🚀\nEx: BTCUSDT")
 
 @bot.message_handler(func=lambda message: True)
 def analyse(message):
-    pair_name = message.text.upper()
-    if pair_name not in pairs:
-        bot.send_message(message.chat.id, "❌ Paire inconnue.")
+    symbol = message.text.upper()
+
+    data = get_data(symbol)
+
+    if data is None:
+        bot.send_message(message.chat.id, "Erreur données ❌")
         return
 
-    bot.send_message(message.chat.id, f"🔍 Analyse de {pair_name} en cours...")
-    
-    symbol = pairs[pair_name]
-    signal, percent = get_signal(symbol)
+    ema20 = ema(data, 20).iloc[-1]
+    ema50 = ema(data, 50).iloc[-1]
+    rsi_val = rsi(data).iloc[-1]
 
-    if not signal or signal == "ATTENTE":
-        bot.send_message(message.chat.id, "⚠️ Pas de signal clair pour le moment. Attends la prochaine bougie.")
+    macd_line, macd_signal = macd(data)
+    macd_last = macd_line.iloc[-1]
+    signal_last = macd_signal.iloc[-1]
+
+    score = 0
+
+    # 🔥 EMA tendance
+    if ema20 > ema50:
+        signal = "CALL"
+        score += 40
+    else:
+        signal = "PUT"
+        score += 40
+
+    # 🔥 RSI filtre
+    if signal == "CALL" and 40 < rsi_val < 65:
+        score += 30
+    elif signal == "PUT" and 35 < rsi_val < 60:
+        score += 30
+
+    # 🔥 MACD confirmation
+    if signal == "CALL" and macd_last > signal_last:
+        score += 30
+    elif signal == "PUT" and macd_last < signal_last:
+        score += 30
+
+    # 🚫 filtre
+    if score < 70:
+        bot.send_message(message.chat.id, f"{symbol} → PAS DE SIGNAL ({score}%)")
         return
 
-    # Création visuelle du signal
-    img = Image.new('RGB', (500, 350), color='#1a1a1a')
-    draw = ImageDraw.Draw(img)
-    color = "#00ff00" if signal == "CALL" else "#ff4444"
+    create_image(signal, score, symbol)
 
-    draw.rectangle([20, 20, 480, 330], outline=color, width=5)
-    draw.text((180, 50), f"PAIRE: {pair_name}", fill="white")
-    draw.text((180, 120), f"ACTION: {signal}", fill=color)
-    draw.text((180, 190), f"FIABILITÉ: {percent}%", fill="white")
-    draw.text((150, 260), "EXPIRATION: 1 MIN", fill="yellow")
-
-    img.save("signal.png")
     with open("signal.png", "rb") as photo:
-        bot.send_photo(message.chat.id, photo, caption=f"✅ Signal détecté pour {pair_name}")
+        bot.send_photo(message.chat.id, photo)
 
 bot.infinity_polling()
