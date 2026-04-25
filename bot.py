@@ -1,5 +1,6 @@
 import telebot
-import random
+import requests
+import pandas as pd
 from PIL import Image, ImageDraw
 
 TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
@@ -7,23 +8,52 @@ bot = telebot.TeleBot(TOKEN)
 
 bot.delete_webhook()
 
-# 🧠 analyse rapide (simulation intelligente)
-def analyse():
-    moves = [random.choice([1, -1]) for _ in range(20)]
-    score_up = moves.count(1)
-    score_down = moves.count(-1)
+# 🔧 mapping
+def convert_symbol(symbol):
+    mapping = {
+        "BTCUSDT": "bitcoin",
+        "ETHUSDT": "ethereum"
+    }
+    return mapping.get(symbol, None)
 
-    if score_up > score_down:
-        signal = "CALL"
-        confidence = int((score_up / 20) * 100)
-    else:
-        signal = "PUT"
-        confidence = int((score_down / 20) * 100)
+# 📊 data réel
+def get_data(symbol):
+    coin = convert_symbol(symbol)
+    if not coin:
+        return None
 
-    return signal, confidence
+    try:
+        url = f"https://api.coingecko.com/api/v3/coins/{coin}/market_chart?vs_currency=usd&days=1"
+        data = requests.get(url, timeout=5).json()
+        prices = [p[1] for p in data["prices"]]
+        return pd.Series(prices[-100:])
+    except:
+        return None
 
-# 🎨 image propre
-def create_image(signal, confidence, symbol):
+# 📈 EMA
+def ema(series, period):
+    return series.ewm(span=period).mean()
+
+# 📉 RSI
+def rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+# 📊 MACD
+def macd(series):
+    ema12 = series.ewm(span=12).mean()
+    ema26 = series.ewm(span=26).mean()
+    macd_line = ema12 - ema26
+    signal = macd_line.ewm(span=9).mean()
+    return macd_line, signal
+
+# 🎨 image
+def create_image(signal, score, symbol):
     img = Image.new('RGB', (500, 300), color='black')
     draw = ImageDraw.Draw(img)
 
@@ -31,29 +61,60 @@ def create_image(signal, confidence, symbol):
 
     draw.text((170, 60), symbol, fill="white")
     draw.text((180, 120), signal, fill=color)
-    draw.text((180, 180), f"{confidence}%", fill="white")
+    draw.text((180, 180), f"{score}%", fill="white")
 
     img.save("signal.png")
 
-@bot.message_handler(commands=['start'])
-def start(message):
-    bot.send_message(message.chat.id, "BOT RAPIDE ACTIF ⚡\nEnvoie une paire (BTCUSDT...)")
-
 @bot.message_handler(func=lambda message: True)
-def handle(message):
+def analyse(message):
     symbol = message.text.upper()
 
-    signal, confidence = analyse()
+    data = get_data(symbol)
 
-    # 🎯 filtre
-    if confidence < 60:
-        bot.send_message(message.chat.id, f"{symbol} → PAS DE SIGNAL ❌ ({confidence}%)")
+    if data is None:
+        bot.send_message(message.chat.id, "Paire non supportée ❌ (BTCUSDT / ETHUSDT)")
         return
 
-    create_image(signal, confidence, symbol)
+    ema20 = ema(data, 20).iloc[-1]
+    ema50 = ema(data, 50).iloc[-1]
+
+    rsi_val = rsi(data).iloc[-1]
+
+    macd_line, macd_signal = macd(data)
+    macd_last = macd_line.iloc[-1]
+    signal_last = macd_signal.iloc[-1]
+
+    score = 0
+
+    # 🔥 tendance EMA
+    if ema20 > ema50:
+        trend = "CALL"
+        score += 40
+    else:
+        trend = "PUT"
+        score += 40
+
+    # 🔥 RSI
+    if trend == "CALL" and rsi_val < 60:
+        score += 30
+    elif trend == "PUT" and rsi_val > 40:
+        score += 30
+
+    # 🔥 MACD
+    if trend == "CALL" and macd_last > signal_last:
+        score += 30
+    elif trend == "PUT" and macd_last < signal_last:
+        score += 30
+
+    # 🎯 filtre sniper
+    if score < 70:
+        bot.send_message(message.chat.id, f"{symbol} → PAS DE SIGNAL ❌ ({score}%)")
+        return
+
+    create_image(trend, score, symbol)
 
     with open("signal.png", "rb") as photo:
         bot.send_photo(message.chat.id, photo)
 
-print("BOT 100% STABLE lancé...")
+print("BOT IA PRO lancé...")
 bot.infinity_polling()
