@@ -8,14 +8,27 @@ TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
 bot = telebot.TeleBot(TOKEN)
 bot.remove_webhook()
 
-# 📊 données Binance (réel)
+# 📊 DONNÉES BINANCE (FIABLE)
 def get_data(symbol):
     try:
         url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=100"
-        data = requests.get(url, timeout=5).json()
+        response = requests.get(url, timeout=5)
+
+        if response.status_code != 200:
+            return None
+
+        data = response.json()
+
+        if isinstance(data, dict) and "code" in data:
+            return None
 
         closes = [float(candle[4]) for candle in data]
+
+        if len(closes) < 50:
+            return None
+
         return pd.Series(closes)
+
     except:
         return None
 
@@ -41,7 +54,7 @@ def macd(series):
     signal = macd_line.ewm(span=9).mean()
     return macd_line, signal
 
-# 🎨 image propre
+# 🎨 IMAGE
 def create_image(signal, score, symbol):
     img = Image.new('RGB', (500, 300), color='black')
     draw = ImageDraw.Draw(img)
@@ -56,7 +69,7 @@ def create_image(signal, score, symbol):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "BOT PRO RÉEL 🚀\nEx: BTCUSDT")
+    bot.send_message(message.chat.id, "BOT PRO ACTIF 🚀\nEx: BTCUSDT")
 
 @bot.message_handler(func=lambda message: True)
 def analyse(message):
@@ -65,7 +78,7 @@ def analyse(message):
     data = get_data(symbol)
 
     if data is None:
-        bot.send_message(message.chat.id, "Paire invalide ❌")
+        bot.send_message(message.chat.id, "Paire invalide ❌ (ex: BTCUSDT)")
         return
 
     ema20 = ema(data, 20).iloc[-1]
@@ -78,7 +91,7 @@ def analyse(message):
 
     score = 0
 
-    # 🔥 tendance EMA
+    # 🔥 EMA
     if ema20 > ema50:
         signal = "CALL"
         score += 40
@@ -86,19 +99,18 @@ def analyse(message):
         signal = "PUT"
         score += 40
 
-    # 🔥 RSI filtre
+    # 🔥 RSI
     if signal == "CALL" and 40 < rsi_val < 65:
         score += 30
     elif signal == "PUT" and 35 < rsi_val < 60:
         score += 30
 
-    # 🔥 MACD confirmation
+    # 🔥 MACD
     if signal == "CALL" and macd_last > signal_last:
         score += 30
     elif signal == "PUT" and macd_last < signal_last:
         score += 30
 
-    # 🚫 filtre anti faux signal
     if score < 70:
         bot.send_message(message.chat.id, f"{symbol} → PAS DE SIGNAL ({score}%)")
         return
