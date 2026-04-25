@@ -1,6 +1,6 @@
 import telebot
-import requests
 import pandas as pd
+import yfinance as yf
 from PIL import Image, ImageDraw
 
 TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
@@ -8,27 +8,15 @@ TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
 bot = telebot.TeleBot(TOKEN)
 bot.remove_webhook()
 
-# 📊 DONNÉES BINANCE (FIABLE)
+# 📊 DONNÉES YAHOO (FIABLE)
 def get_data(symbol):
     try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=100"
-        response = requests.get(url, timeout=5)
+        df = yf.download(tickers=symbol, period="1d", interval="1m")
 
-        if response.status_code != 200:
+        if df.empty:
             return None
 
-        data = response.json()
-
-        if isinstance(data, dict) and "code" in data:
-            return None
-
-        closes = [float(candle[4]) for candle in data]
-
-        if len(closes) < 50:
-            return None
-
-        return pd.Series(closes)
-
+        return df["Close"]
     except:
         return None
 
@@ -69,7 +57,7 @@ def create_image(signal, score, symbol):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "BOT PRO ACTIF 🚀\nEx: BTCUSDT")
+    bot.send_message(message.chat.id, "BOT PRO 🚀\nEx: BTC-USD")
 
 @bot.message_handler(func=lambda message: True)
 def analyse(message):
@@ -78,7 +66,7 @@ def analyse(message):
     data = get_data(symbol)
 
     if data is None:
-        bot.send_message(message.chat.id, "Paire invalide ❌ (ex: BTCUSDT)")
+        bot.send_message(message.chat.id, "Paire invalide ❌ (ex: BTC-USD)")
         return
 
     ema20 = ema(data, 20).iloc[-1]
@@ -91,7 +79,6 @@ def analyse(message):
 
     score = 0
 
-    # 🔥 EMA
     if ema20 > ema50:
         signal = "CALL"
         score += 40
@@ -99,13 +86,11 @@ def analyse(message):
         signal = "PUT"
         score += 40
 
-    # 🔥 RSI
     if signal == "CALL" and 40 < rsi_val < 65:
         score += 30
     elif signal == "PUT" and 35 < rsi_val < 60:
         score += 30
 
-    # 🔥 MACD
     if signal == "CALL" and macd_last > signal_last:
         score += 30
     elif signal == "PUT" and macd_last < signal_last:
