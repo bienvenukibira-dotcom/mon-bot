@@ -2,38 +2,48 @@ import telebot
 import requests
 import pandas as pd
 from PIL import Image, ImageDraw
+import time
 
 TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
 
 bot = telebot.TeleBot(TOKEN)
 bot.remove_webhook()
 
-# 🔥 DONNÉES BINANCE CORRIGÉES
+HEADERS = {
+    "User-Agent": "Mozilla/5.0"
+}
+
+# 🔥 BINANCE AVEC RETRY + HEADERS
 def get_data(symbol):
-    try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=100"
-        response = requests.get(url, timeout=10)
+    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=100"
 
-        if response.status_code != 200:
-            print("HTTP ERROR:", response.status_code)
-            return None
+    for _ in range(3):  # retry 3 fois
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=10)
 
-        data = response.json()
+            if r.status_code != 200:
+                print("HTTP ERROR:", r.status_code)
+                time.sleep(1)
+                continue
 
-        if isinstance(data, dict):
-            print("BINANCE ERROR:", data)
-            return None
+            data = r.json()
 
-        closes = [float(candle[4]) for candle in data]
+            if isinstance(data, dict):
+                print("BINANCE ERROR:", data)
+                return None
 
-        if len(closes) < 50:
-            return None
+            closes = [float(c[4]) for c in data]
 
-        return pd.Series(closes)
+            if len(closes) < 50:
+                return None
 
-    except Exception as e:
-        print("ERREUR:", e)
-        return None
+            return pd.Series(closes)
+
+        except Exception as e:
+            print("REQUEST ERROR:", e)
+            time.sleep(1)
+
+    return None
 
 # 📈 EMA
 def ema(series, period):
@@ -72,7 +82,7 @@ def create_image(signal, score, symbol):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "BOT PRO RÉEL 🚀\nEx: BTCUSDT")
+    bot.send_message(message.chat.id, "BOT PRO 🚀\nEx: BTCUSDT")
 
 @bot.message_handler(func=lambda message: True)
 def analyse(message):
@@ -81,7 +91,7 @@ def analyse(message):
     data = get_data(symbol)
 
     if data is None:
-        bot.send_message(message.chat.id, "Erreur données ❌")
+        bot.send_message(message.chat.id, "❌ Données indisponibles (API bloquée ou paire invalide)")
         return
 
     ema20 = ema(data, 20).iloc[-1]
@@ -94,7 +104,6 @@ def analyse(message):
 
     score = 0
 
-    # 🔥 EMA tendance
     if ema20 > ema50:
         signal = "CALL"
         score += 40
@@ -102,19 +111,16 @@ def analyse(message):
         signal = "PUT"
         score += 40
 
-    # 🔥 RSI filtre
     if signal == "CALL" and 40 < rsi_val < 65:
         score += 30
     elif signal == "PUT" and 35 < rsi_val < 60:
         score += 30
 
-    # 🔥 MACD confirmation
     if signal == "CALL" and macd_last > signal_last:
         score += 30
     elif signal == "PUT" and macd_last < signal_last:
         score += 30
 
-    # 🚫 filtre
     if score < 70:
         bot.send_message(message.chat.id, f"{symbol} → PAS DE SIGNAL ({score}%)")
         return
