@@ -8,25 +8,29 @@ bot = telebot.TeleBot(TOKEN)
 
 bot.delete_webhook()
 
-# 🔧 mapping
+# 🔧 mapping paires → symbole forex API
 def convert_symbol(symbol):
     mapping = {
-        "BTCUSDT": "bitcoin",
-        "ETHUSDT": "ethereum"
+        "EURUSD": "EURUSD",
+        "GBPUSD": "GBPUSD",
+        "USDJPY": "USDJPY",
+        "AUDCAD": "AUDCAD",
+        "USDCAD": "USDCAD",
+        "BTCUSDT": "BTCUSDT"
     }
     return mapping.get(symbol, None)
 
-# 📊 data réel
+# 📊 API Forex (gratuite)
 def get_data(symbol):
-    coin = convert_symbol(symbol)
-    if not coin:
-        return None
-
     try:
-        url = f"https://api.coingecko.com/api/v3/coins/{coin}/market_chart?vs_currency=usd&days=1"
+        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=100&apikey=demo"
         data = requests.get(url, timeout=5).json()
-        prices = [p[1] for p in data["prices"]]
-        return pd.Series(prices[-100:])
+
+        if "values" not in data:
+            return None
+
+        closes = [float(c["close"]) for c in data["values"]]
+        return pd.Series(closes[::-1])
     except:
         return None
 
@@ -72,12 +76,11 @@ def analyse(message):
     data = get_data(symbol)
 
     if data is None:
-        bot.send_message(message.chat.id, "Paire non supportée ❌ (BTCUSDT / ETHUSDT)")
+        bot.send_message(message.chat.id, "Paire non supportée ❌")
         return
 
     ema20 = ema(data, 20).iloc[-1]
     ema50 = ema(data, 50).iloc[-1]
-
     rsi_val = rsi(data).iloc[-1]
 
     macd_line, macd_signal = macd(data)
@@ -86,7 +89,6 @@ def analyse(message):
 
     score = 0
 
-    # 🔥 tendance EMA
     if ema20 > ema50:
         trend = "CALL"
         score += 40
@@ -94,19 +96,16 @@ def analyse(message):
         trend = "PUT"
         score += 40
 
-    # 🔥 RSI
     if trend == "CALL" and rsi_val < 60:
         score += 30
     elif trend == "PUT" and rsi_val > 40:
         score += 30
 
-    # 🔥 MACD
     if trend == "CALL" and macd_last > signal_last:
         score += 30
     elif trend == "PUT" and macd_last < signal_last:
         score += 30
 
-    # 🎯 filtre sniper
     if score < 70:
         bot.send_message(message.chat.id, f"{symbol} → PAS DE SIGNAL ❌ ({score}%)")
         return
@@ -116,5 +115,5 @@ def analyse(message):
     with open("signal.png", "rb") as photo:
         bot.send_photo(message.chat.id, photo)
 
-print("BOT IA PRO lancé...")
+print("BOT MULTI-PAIRES lancé...")
 bot.infinity_polling()
