@@ -4,23 +4,34 @@ import pandas as pd
 from PIL import Image, ImageDraw
 
 TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
-API_KEY = "afca3d19871f415da626c918d9f565b0"
+API_KEY = "DSAKU861DQJ6IM2D"
 
 bot = telebot.TeleBot(TOKEN)
 bot.remove_webhook()
 
-# 📊 récupérer données forex
+# 📊 récupération données forex (Alpha Vantage)
 def get_data(symbol):
     try:
-        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=100&apikey={API_KEY}"
-        data = requests.get(url, timeout=5).json()
-
-        if "values" not in data:
+        if len(symbol) != 6:
             return None
 
-        closes = [float(c["close"]) for c in data["values"]]
+        base = symbol[:3]
+        quote = symbol[3:]
+
+        url = f"https://www.alphavantage.co/query?function=FX_INTRADAY&from_symbol={base}&to_symbol={quote}&interval=1min&apikey={API_KEY}"
+        data = requests.get(url).json()
+
+        key = "Time Series FX (1min)"
+
+        if key not in data:
+            print("API ERROR:", data)
+            return None
+
+        closes = [float(v["4. close"]) for v in data[key].values()]
         return pd.Series(closes[::-1])
-    except:
+
+    except Exception as e:
+        print("ERREUR:", e)
         return None
 
 # 📈 EMA
@@ -60,7 +71,7 @@ def create_image(signal, score, symbol):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "BOT PRO ACTIF 🚀\nEnvoie EURUSD, GBPUSD, AUDCAD...")
+    bot.send_message(message.chat.id, "BOT PRO ACTIF 🚀\nEnvoie EURUSD")
 
 @bot.message_handler(func=lambda message: True)
 def analyse(message):
@@ -82,7 +93,6 @@ def analyse(message):
 
     score = 0
 
-    # 🔥 tendance
     if ema20 > ema50:
         signal = "CALL"
         score += 40
@@ -90,13 +100,11 @@ def analyse(message):
         signal = "PUT"
         score += 40
 
-    # 🔥 RSI
     if signal == "CALL" and rsi_val < 60:
         score += 30
     elif signal == "PUT" and rsi_val > 40:
         score += 30
 
-    # 🔥 MACD
     if signal == "CALL" and macd_last > signal_last:
         score += 30
     elif signal == "PUT" and macd_last < signal_last:
@@ -112,4 +120,3 @@ def analyse(message):
         bot.send_photo(message.chat.id, photo)
 
 bot.infinity_polling()
-  
