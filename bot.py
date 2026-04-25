@@ -26,7 +26,7 @@ def ema(series, period):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "Bot prêt 🚀\nEnvoie EURUSD ou GBPUSD")
+    bot.send_message(message.chat.id, "Bot intelligent actif 🚀")
 
 @bot.message_handler(func=lambda message: True)
 def analyse(message):
