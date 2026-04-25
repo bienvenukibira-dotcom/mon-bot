@@ -4,29 +4,20 @@ import pandas as pd
 from PIL import Image, ImageDraw
 
 TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
+API_KEY = "afca3d19871f415da626c918d9f565b0"
+
 bot = telebot.TeleBot(TOKEN)
 
 bot.delete_webhook()
 
-# 🔧 mapping paires → symbole forex API
-def convert_symbol(symbol):
-    mapping = {
-        "EURUSD": "EURUSD",
-        "GBPUSD": "GBPUSD",
-        "USDJPY": "USDJPY",
-        "AUDCAD": "AUDCAD",
-        "USDCAD": "USDCAD",
-        "BTCUSDT": "BTCUSDT"
-    }
-    return mapping.get(symbol, None)
-
-# 📊 API Forex (gratuite)
+# 📊 récupérer données forex
 def get_data(symbol):
     try:
-        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=100&apikey=demo"
+        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=100&apikey={API_KEY}"
         data = requests.get(url, timeout=5).json()
 
         if "values" not in data:
+            print(data)
             return None
 
         closes = [float(c["close"]) for c in data["values"]]
@@ -69,6 +60,10 @@ def create_image(signal, score, symbol):
 
     img.save("signal.png")
 
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.send_message(message.chat.id, "Bot Forex M1 prêt 🚀\nEnvoie EURUSD, AUDCAD, GBPUSD...")
+
 @bot.message_handler(func=lambda message: True)
 def analyse(message):
     symbol = message.text.upper()
@@ -76,7 +71,7 @@ def analyse(message):
     data = get_data(symbol)
 
     if data is None:
-        bot.send_message(message.chat.id, "Paire non supportée ❌")
+        bot.send_message(message.chat.id, "Erreur données ou paire non supportée ❌")
         return
 
     ema20 = ema(data, 20).iloc[-1]
@@ -89,31 +84,35 @@ def analyse(message):
 
     score = 0
 
+    # 🔥 tendance
     if ema20 > ema50:
-        trend = "CALL"
+        signal = "CALL"
         score += 40
     else:
-        trend = "PUT"
+        signal = "PUT"
         score += 40
 
-    if trend == "CALL" and rsi_val < 60:
+    # 🔥 RSI
+    if signal == "CALL" and rsi_val < 60:
         score += 30
-    elif trend == "PUT" and rsi_val > 40:
-        score += 30
-
-    if trend == "CALL" and macd_last > signal_last:
-        score += 30
-    elif trend == "PUT" and macd_last < signal_last:
+    elif signal == "PUT" and rsi_val > 40:
         score += 30
 
+    # 🔥 MACD
+    if signal == "CALL" and macd_last > signal_last:
+        score += 30
+    elif signal == "PUT" and macd_last < signal_last:
+        score += 30
+
+    # 🎯 filtre
     if score < 70:
         bot.send_message(message.chat.id, f"{symbol} → PAS DE SIGNAL ❌ ({score}%)")
         return
 
-    create_image(trend, score, symbol)
+    create_image(signal, score, symbol)
 
     with open("signal.png", "rb") as photo:
         bot.send_photo(message.chat.id, photo)
 
-print("BOT MULTI-PAIRES lancé...")
+print("BOT FOREX PRO lancé...")
 bot.infinity_polling()
