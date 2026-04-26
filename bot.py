@@ -7,30 +7,23 @@ import time
 TOKEN = "8759628647:AAH6XfSmHCHQgt-b4ODJAmgQHE40HGZaCcw"
 
 bot = telebot.TeleBot(TOKEN)
-bot.remove_webhook()
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
-
-# 🔥 BINANCE AVEC RETRY + HEADERS
 def get_data(symbol):
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=100"
 
-    for _ in range(3):  # retry 3 fois
+    for i in range(3):  # retry
         try:
-            r = requests.get(url, headers=HEADERS, timeout=10)
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
 
             if r.status_code != 200:
-                print("HTTP ERROR:", r.status_code)
-                time.sleep(1)
+                time.sleep(2)
                 continue
 
             data = r.json()
 
             if isinstance(data, dict):
-                print("BINANCE ERROR:", data)
-                return None
+                time.sleep(2)
+                continue
 
             closes = [float(c[4]) for c in data]
 
@@ -39,17 +32,14 @@ def get_data(symbol):
 
             return pd.Series(closes)
 
-        except Exception as e:
-            print("REQUEST ERROR:", e)
-            time.sleep(1)
+        except:
+            time.sleep(2)
 
     return None
 
-# 📈 EMA
 def ema(series, period):
     return series.ewm(span=period).mean()
 
-# 📉 RSI
 def rsi(series, period=14):
     delta = series.diff()
     gain = delta.clip(lower=0)
@@ -59,7 +49,6 @@ def rsi(series, period=14):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
-# 📊 MACD
 def macd(series):
     ema12 = series.ewm(span=12).mean()
     ema26 = series.ewm(span=26).mean()
@@ -67,7 +56,6 @@ def macd(series):
     signal = macd_line.ewm(span=9).mean()
     return macd_line, signal
 
-# 🎨 IMAGE
 def create_image(signal, score, symbol):
     img = Image.new('RGB', (500, 300), color='black')
     draw = ImageDraw.Draw(img)
@@ -82,7 +70,7 @@ def create_image(signal, score, symbol):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "BOT PRO 🚀\nEx: BTCUSDT")
+    bot.send_message(message.chat.id, "BOT GRATUIT 🚀\nEnvoie BTCUSDT")
 
 @bot.message_handler(func=lambda message: True)
 def analyse(message):
@@ -91,7 +79,7 @@ def analyse(message):
     data = get_data(symbol)
 
     if data is None:
-        bot.send_message(message.chat.id, "❌ Données indisponibles (API bloquée ou paire invalide)")
+        bot.send_message(message.chat.id, "⚠️ Réessaie dans 10 secondes")
         return
 
     ema20 = ema(data, 20).iloc[-1]
